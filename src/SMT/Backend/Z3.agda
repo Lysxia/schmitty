@@ -22,7 +22,7 @@ open import Data.String as String using (String; _++_)
 open import Data.Sum as Sum using (_⊎_; inj₁; inj₂; [_,_])
 open import Data.Unit as Unit using (⊤)
 open import Function using (case_of_; const; _$_; _∘_)
-open import Reflection as Rfl using (return; _>>=_; _>>_)
+open import Reflection as Rfl using (pure; _>>=_; _>>_)
 open import Reflection.External
 open import SMT.Backend.Base
 open import SMT.Script.Base theory public
@@ -51,7 +51,7 @@ z3TC {Γ} {ξ} {Ξ} scr = do
   (result exitCode stdout stderr) ← unsafeRunCmdTC z3Cmd
   case parseOutputs stdout of λ where
     (inj₁ smterr)  → displayError stdout smterr (showCmdSpec z3Cmd) scr
-    (inj₂ outputs) → return outputs
+    (inj₂ outputs) → pure outputs
 
 
 macro
