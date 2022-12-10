@@ -21,7 +21,8 @@ open import Data.List as List using (List; _∷_; []; _++_; length)
 open import Data.List.Relation.Unary.All using (All; _∷_; [])
 open import Data.List.Relation.Unary.Any as Any using (here; there)
 open import Data.Maybe as Maybe using (Maybe; just; nothing)
-import Data.Maybe.Effectful as MaybeCat
+open import Data.Sum.Base as Sum using (_⊎_) renaming (inj₁ to left; inj₂ to right)
+import Data.Sum.Effectful.Left as SumEffect
 open import Data.Nat as Nat using (ℕ; suc; zero)
 open import Data.Product as Prod using (∃; ∃-syntax; -,_; _×_; _,_; proj₁; proj₂)
 open import Data.String as String using (String)
@@ -33,7 +34,7 @@ import Level
 import Reflection as Rfl
 open import Relation.Nullary using (Dec; yes; no)
 open import Relation.Nullary.Decidable using (True)
-open import Relation.Binary.PropositionalEquality using (_≡_; refl; sym)
+open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym)
 open import SMT.Script.Base theory
 
 private
@@ -56,10 +57,43 @@ module _ where
 
   open import SMT.Theory.Raw.Reflection
 
-  private
-    monadPlusMaybe = MaybeCat.monadPlus {Level.zero}
+  data Error : Set where
+    sort-mismatch : (σ σ′ : Sort) → σ ≢ σ′ → Error
+    unbound : Error
+    naked-variable : Error
+    bad-literal : Rfl.Literal → Error
+    bad-identifier : Rfl.Name → Error
+    bad-sort : Rfl.Term → Error
+    arity-mismatch : Error
+    declare-⋆ : Error
 
-  open RawMonadPlus monadPlusMaybe renaming (_⊛_ to _<*>_)
+  private
+    infixr 5 _^_
+    _^_ = String._++_
+
+  showError : Error → String
+  showError (sort-mismatch σ σ′ _) = "Sort mismatch " ^ "showSort σ" ^ " != " ^ "showSort σ′"
+  showError unbound = "Unbound variable"
+  showError naked-variable = "Naked variable"
+  showError (bad-literal l) = "Bad literal " ^ Rfl.showLiteral l
+  showError (bad-identifier n) = "Unrecognized identifier " ^ Rfl.showName n
+  showError (bad-sort t) = "Bad sort " ^ Rfl.showTerm t
+  showError arity-mismatch = "Arity mismatch"
+  showError declare-⋆ = "Cannot declare constant of type ⋆"
+
+  _≡?-Sort_ : (σ σ′ : Sort) → Error ⊎ (σ ≡ σ′)
+  σ ≡?-Sort σ′ with σ ≟-Sort σ′
+  ... | yes σ≡σ′ = right σ≡σ′
+  ... | no  σ≢σ′ = left (sort-mismatch σ σ′ σ≢σ′)
+
+  private
+    _<?>_ : {A : Set} → Maybe A → Error → Error ⊎ A
+    _<?>_ nothing  e = left e
+    _<?>_ (just r) e = right r
+
+    monadSum = SumEffect.monad Error Level.zero
+
+  open RawMonad monadSum renaming (_⊛_ to _<*>_)
 
 
   private
@@ -69,35 +103,35 @@ module _ where
       Ξᵣ Ξᵣ′ δΞᵣ : RawOutputCtxt
       Δᵣ Δᵣ′     : RawCtxt
 
-  checkRawSort : RawSort → Maybe Sort
-  checkRawSort ⋆        = just BOOL
-  checkRawSort (TERM x) = checkSort x
+  checkRawSort : RawSort → Error ⊎ Sort
+  checkRawSort ⋆        = right BOOL
+  checkRawSort (TERM x) = checkSort x <?> bad-sort x
 
-  checkRawVar : (Γ : Ctxt) (σ : Sort) (n : ℕ) → Maybe (Γ ∋ σ)
-  checkRawVar []       σ n       = nothing
-  checkRawVar (σ′ ∷ Γ) σ zero    = ⦇ (here ∘ sym) (Maybe.decToMaybe (σ′ ≟-Sort σ)) ⦈
+  checkRawVar : (Γ : Ctxt) (σ : Sort) (n : ℕ) → Error ⊎ (Γ ∋ σ)
+  checkRawVar []       σ n       = left unbound
+  checkRawVar (σ′ ∷ Γ) σ zero    = ⦇ (here ∘ sym) (σ′ ≡?-Sort σ) ⦈
   checkRawVar (σ′ ∷ Γ) σ (suc n) = ⦇ extendVar (checkRawVar Γ σ n) ⦈
 
   mutual
-    checkRawTerm : (Γ : Ctxt) (σ : Sort) {σᵣ : RawSort} → RawTerm Γᵣ σᵣ → Maybe (Term Γ σ)
+    checkRawTerm : (Γ : Ctxt) (σ : Sort) {σᵣ : RawSort} → RawTerm Γᵣ σᵣ → Error ⊎ Term Γ σ
     checkRawTerm Γ σ (`appᵣ (quote rawVar) (`varᵣ n ∷ [])) = do
       x ← checkRawVar Γ σ (Fin.toℕ (Any.index n))
       return $ `var x
-    checkRawTerm Γ σ (`varᵣ n) = nothing -- should be no naked variables
+    checkRawTerm Γ σ (`varᵣ n) = left naked-variable
     checkRawTerm Γ σ (`litᵣ l) = do
-      l ← checkLiteral σ l
+      l ← checkLiteral σ l <?> bad-literal l
       return $ `lit l
     checkRawTerm Γ σ (`appᵣ f args) = do
-      (Σ , f) ← checkIdentifier σ f
+      (Σ , f) ← checkIdentifier σ f <?> bad-identifier f
       args ← checkRawArgs Γ (ArgSorts Σ) args
       return $ f args
     checkRawTerm Γ σ (`forallᵣ n σᵣ x) = do
-      refl ← Maybe.decToMaybe (σ ≟-Sort BOOL)
+      refl ← σ ≡?-Sort BOOL
       σ′   ← checkRawSort σᵣ
       x    ← checkRawTerm (σ′ ∷ Γ) BOOL x
       return $ `forall n σ′ x
     checkRawTerm Γ σ (`existsᵣ n σᵣ x) = do
-      refl ← Maybe.decToMaybe (σ ≟-Sort BOOL)
+      refl ← σ ≡?-Sort BOOL
       σ′   ← checkRawSort σᵣ
       x    ← checkRawTerm (σ′ ∷ Γ) BOOL x
       return $ `exists n σ′ x
@@ -107,10 +141,10 @@ module _ where
       y  ← checkRawTerm (σ′ ∷ Γ) σ y
       return $ (`let n σ′ x y)
 
-    checkRawArgs : (Γ Δ : Ctxt) → RawArgs Γᵣ Δᵣ → Maybe (Args Γ Δ)
+    checkRawArgs : (Γ Δ : Ctxt) → RawArgs Γᵣ Δᵣ → Error ⊎ (Args Γ Δ)
     checkRawArgs Γ []      []           = ⦇ [] ⦈
     checkRawArgs Γ (σ ∷ Δ) (arg ∷ args) = ⦇ (checkRawTerm Γ σ arg) ∷ (checkRawArgs Γ Δ args) ⦈
-    checkRawArgs _ _       _            = nothing
+    checkRawArgs _ _       _            = left arity-mismatch
 
   Script[_↦_,_↦_,_↦_] :
     (Γᵣ  : RawCtxt)       (Γ  : Vec Sort (length Γᵣ))
@@ -121,15 +155,15 @@ module _ where
   checkRawScript : {Γᵣ Γᵣ′ : RawCtxt} {Ξᵣ : RawOutputCtxt}
     → (Γ : Vec Sort (length Γᵣ))
     → RawScript Γᵣ Γᵣ′ Ξᵣ
-    → Maybe (∃[ Γ′ ] ∃[ Ξ ] Script[ Γᵣ ↦ Γ , Γᵣ′ ↦ Γ′ , Ξᵣ ↦ Ξ ])
+    → Error ⊎ (∃[ Γ′ ] ∃[ Ξ ] Script[ Γᵣ ↦ Γ , Γᵣ′ ↦ Γ′ , Ξᵣ ↦ Ξ ])
   checkRawScript {Γᵣ} {.Γᵣ} {.[]} Γ []ᵣ =
     return $ Γ , [] , []
   checkRawScript Γ (`set-logicᵣ l scr) = do
     (Γ′ , Ξ , scr) ← checkRawScript Γ scr
     return $ Γ′ , Ξ , (`set-logic l scr)
-  checkRawScript Γ (`declare-constᵣ _ ⋆ _) = nothing -- we never declare constants of type ⋆
+  checkRawScript Γ (`declare-constᵣ _ ⋆ _) = left declare-⋆
   checkRawScript Γ (`declare-constᵣ n (TERM σᵣ) scr) = do
-    σ ← checkSort σᵣ
+    σ ← checkSort σᵣ <?> bad-sort σᵣ
     Γ′ , Ξ , scr ← checkRawScript (σ ∷ Γ) scr
     return $ Γ′ , Ξ , (`declare-const n σ scr)
   checkRawScript Γ (`assertᵣ x scr) = do
@@ -155,5 +189,5 @@ module _ where
   reflectToScript t = do
     (Γᵣ , scrᵣ) ← reflectToRawScript t
     case checkRawScript [] scrᵣ of λ where
-      nothing → Rfl.typeErrorFmt "Ill-typed script:\n%s" (showRawScript scrᵣ)
-      (just (Γ , [] , scr)) → return (Vec.toList Γ , scr)
+      (left e) → Rfl.typeErrorFmt "Ill-typed script: %s\n%s" (showError e) (showRawScript scrᵣ)
+      (right (Γ , [] , scr)) → return (Vec.toList Γ , scr)
