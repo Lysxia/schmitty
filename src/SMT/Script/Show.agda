@@ -220,7 +220,7 @@ module _ where
   freshNameS n σ = do
     (ns , vps) ← get
     let (n′ , ns) = freshName n σ ns
-    let vps = (here refl <$ withSpaces (exacts n′)) ∷ vps
+    let vps = (λ {_} → here refl <$ withSpaces (exacts n′)) ∷ vps
     put (ns , vps)
     return n′
 
@@ -291,12 +291,12 @@ module _ where
     return $ mkSTerm ("assert" ∷ x ∷ []) ∷ scr , ops
   showScriptS (`check-sat scr) = do
     (scr , ops) ← showScriptS scr
-    return $ mkSTerm ("check-sat" ∷ []) ∷ scr , pSat ∷ ops
+    return $ mkSTerm ("check-sat" ∷ []) ∷ scr , (λ {_} → pSat) ∷ ops
   showScriptS (`get-model scr) = do
     (_ns , vps) ← get
     (scr , ops) ← showScriptS scr
     return $ mkSTerm ("check-sat" ∷ []) ∷ mkSTerm ("get-model" ∷ []) ∷ scr
-           , mkModelParser (mkVarParser vps) ∷ ops
+           , (λ {_} → mkModelParser (mkVarParser vps)) ∷ ops
 
   -- |Show a script as an S-expression, and return an environment of output parsers.
   showScript : Script [] Γ Ξ → String × (String → Position ⊎ (Outputs Ξ))
