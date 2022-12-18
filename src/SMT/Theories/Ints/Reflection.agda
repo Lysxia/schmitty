@@ -25,6 +25,7 @@ open import SMT.Theory
 open import SMT.Theories.Core as Core hiding (BOOL; theory)
 open import SMT.Theories.Core.Extensions
 open import SMT.Theories.Ints.Base as Ints
+open import SMT.Theories.Ints.Extra using (+∣_∣)
 open import SMT.Script.Base Ints.theory
 
 
@@ -76,7 +77,7 @@ private
   --
   -- pattern `div = ?
   -- pattern `mod = ?
-  pattern `abs    = quote Int.∣_∣
+  pattern `abs    = quote +∣_∣
   pattern `leq    = quote Int._≤_
   pattern `lt     = quote Int._<_
   pattern `geq    = quote Int._≥_
