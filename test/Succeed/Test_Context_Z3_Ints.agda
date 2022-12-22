@@ -4,7 +4,8 @@
 module Test_Context_Z3_Ints where
 
 open import Agda.Builtin.FromNat
-open import Data.Integer using (ℤ; _+_; _-_)
+open import Data.Integer using (ℤ; _+_; _-_; _≤_)
+open import Data.Product using (∃-syntax; _,_)
 open import Data.Empty using (⊥)
 open import Data.Unit using (tt)
 open import Relation.Binary.PropositionalEquality using (_≡_)
@@ -44,3 +45,6 @@ t₆ = solveZ3
 -- Assumptions that are not encodable as SMT formulas are ignored.
 t₇ : (A : Set) → A ≡ A → (x : ℤ) → x - x ≡ 0
 t₇ = solveZ3
+
+t₈ : ∃[ x ] x ≤ 1
+t₈ = 1 , solveZ3

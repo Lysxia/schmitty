@@ -36,6 +36,7 @@ open import Function using (Morphism; _$_; case_of_; _∘_; const; flip; id)
 import Function.Identity.Effectful as Identity
 import Level
 import Reflection as Rfl
+open import Reflection.Normalise using (blockOnAnyMeta)
 open import Reflection.AST.DeBruijn using (η-expand)
 import Reflection.TCM.Effectful as TC
 open import Relation.Nullary using (Dec; yes; no; ¬_)
@@ -192,6 +193,9 @@ module _ where
   toVar σ (σ′ ∷ Γ) (nothing ∷ fv) (suc n) = there <$> toVar σ Γ fv n
   toVar σ Γ fv n = throw unbound-variable  -- If the terms come from Agda this shouldn't happen
 
+  try-normalise : Rfl.Term → M Rfl.Term
+  try-normalise t = lift (Rfl.normalise t Rfl.>>= blockOnAnyMeta)
+
   mutual
 
     -- |To avoid having to deal with overloaded literals in the different theories (the dictionaries
@@ -206,8 +210,8 @@ module _ where
     toTerm′ fuel Γ fv σ (var x []) = `var <$> toVar σ Γ fv x
     toTerm′ fuel Γ fv σ (var x (_ ∷ _)) = throw higher-order-variable
     toTerm′ fuel Γ fv σ (lit l) = `lit <$> checkLiteral σ l <?> bad-literal l
-    toTerm′ fuel Γ fv σ t@(def `fromNat _) = toTerm-decr fuel Γ fv σ =<< lift (Rfl.normalise t)
-    toTerm′ fuel Γ fv σ t@(def `fromNeg _) = toTerm-decr fuel Γ fv σ =<< lift (Rfl.normalise t)
+    toTerm′ fuel Γ fv σ t@(def `fromNat _) = toTerm-decr fuel Γ fv σ =<< try-normalise t
+    toTerm′ fuel Γ fv σ t@(def `fromNeg _) = toTerm-decr fuel Γ fv σ =<< try-normalise t
     toTerm′ fuel Γ fv σ (`Σ  a b) = toExist fuel Γ fv σ a b
     toTerm′ fuel Γ fv σ (`Σˢ a b) = toExist fuel Γ fv σ a b
     toTerm′ fuel Γ fv σ (`∃  a b) = toExist fuel Γ fv σ a b
