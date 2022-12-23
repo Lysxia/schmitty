@@ -10,12 +10,12 @@ module SMT.Backend.Base where
 
 open import Data.List as List using (List; _∷_; []; foldl)
 open import Data.List.Relation.Unary.All as All using (All; _∷_; [])
-open import Data.Maybe.Base using (Maybe; just; nothing)
-open import Data.Product using (_×_; _,_; proj₁; proj₂; uncurry)
+open import Data.Maybe.Base using (nothing; just)
+open import Data.Product using (_×_; _,_; proj₁; proj₂)
 open import Data.String as String using (String)
 open import Data.Unit using (⊤)
 open import Function using (case_of_; const; _$_; _∘_; flip)
-open import Reflection as Rfl using (_>>=_; _>>_)
+open import Reflection as Rfl using (return; _>>=_; _>>_)
 open import Reflection.Normalise using (normaliseClosed)
 open import SMT.Theory
 open import Text.Printf

@@ -1,4 +1,3 @@
-{-# OPTIONS --guardedness #-}
 module Text.Parser.String where
 
 open import Data.Bool.Base using (T; not)

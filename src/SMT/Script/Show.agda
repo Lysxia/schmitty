@@ -18,7 +18,7 @@ open Theory theory
 open Parsable parsable
 open Printable printable
 
-open import Effect.Monad
+open import Category.Monad
 open import Codata.Musical.Stream as Stream using (Stream)
 open import Data.Char as Char using (Char)
 open import Data.Environment as Env using (Env; _∷_; [])
@@ -29,7 +29,7 @@ open import Data.List.Relation.Unary.Any as Any using (here; there)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.List.NonEmpty as List⁺ using (List⁺; _∷_)
 open import Data.Maybe as Maybe using (Maybe; just; nothing)
-import Data.Maybe.Effectful as MaybeCat
+import Data.Maybe.Categorical as MaybeCat
 open import Data.Nat as Nat using (ℕ; suc; zero)
 open import Data.Nat.Show renaming (show to showℕ)
 open import Data.Product as Prod using (∃; ∃-syntax; -,_; _×_; _,_; proj₁; proj₂)
@@ -37,7 +37,7 @@ open import Data.String as String using (String)
 open import Data.Unit as Unit using (⊤)
 open import Data.Vec as Vec using (Vec; _∷_; [])
 open import Function using (_$_; case_of_; _∘_; const; flip; id)
-import Function.Identity.Effectful as Identity
+import Function.Identity.Categorical as Identity
 import Level
 import Reflection as Rfl
 open import Relation.Nullary using (yes; no)
@@ -200,7 +200,7 @@ module _ where
 
 module _ where
 
-  open import Effect.Monad.State.Indexed using (IStateT; RawIMonadState; StateTIMonadState)
+  open import Category.Monad.State as StateCat using (RawIMonadState; IStateT)
   open import Text.Parser.String using (IUniversal; Parser; _<$_; withSpaces; exacts)
 
   NameState : (Γ Γ′ : Ctxt) → Set → Set
@@ -210,11 +210,11 @@ module _ where
   -- for which we'll use an indexed monad, indexed by the context,
   -- so we bring the functions from the indexed monad in scope.
   private
-    imonadState =
-      StateTIMonadState (λ Γ → Names Γ × VarParsers Γ) Identity.monad
+    monadStateNameState =
+      StateCat.StateTIMonadState (λ Γ → Names Γ × VarParsers Γ) Identity.monad
 
-  open RawIMonadState imonadState
-    using (pure; _>>=_; _>>_; put; get; modify)
+  open RawIMonadState monadStateNameState
+    using (return; _>>=_; _>>_; put; get; modify)
 
   freshNameS : (n : String) (σ : Sort) → NameState Γ (σ ∷ Γ) Name
   freshNameS n σ = do
@@ -222,18 +222,18 @@ module _ where
     let (n′ , ns) = freshName n σ ns
     let vps = (here refl <$ withSpaces (exacts n′)) ∷ vps
     put (ns , vps)
-    pure n′
+    return n′
 
   dropNameS : NameState (σ ∷ Γ) Γ ⊤
   dropNameS = do
     (ns , _ ∷ vps) ← get
     put (dropName ns , vps)
-    pure _
+    return _
 
   lookupNameS : (i : Γ ∋ σ) → NameState Γ Γ Name
   lookupNameS p = do
     (ns , _vps) ← get
-    pure $ Env.lookup (Names.nameEnv ns) (Any.index p)
+    return $ Env.lookup (Names.nameEnv ns) (Any.index p)
 
 
   -- * Printing functions
@@ -244,58 +244,58 @@ module _ where
     showTermS : Term Γ σ → NameState Γ Γ String
     showTermS (`var i) = do
       n ← lookupNameS i
-      pure $ showName n
+      return $ showName n
     showTermS (`lit l) = do
-      pure $ showLiteral l
+      return $ showLiteral l
     showTermS (`app x []) = do
-      pure $ showIdentifier x
+      return $ showIdentifier x
     showTermS (`app x xs) = do
       let x = showIdentifier x
       xs ← showArgsS xs
-      pure $ mkSTerm (x ∷ xs)
+      return $ mkSTerm (x ∷ xs)
     showTermS (`forall n σ x) = do
       n′ ← freshNameS n σ
       x ← showTermS x
       dropNameS
-      pure $ mkSTerm ("forall" ∷ mkSTerm (mkSTerm (showName n′ ∷ showSort σ ∷ []) ∷ []) ∷ x ∷ [])
+      return $ mkSTerm ("forall" ∷ mkSTerm (mkSTerm (showName n′ ∷ showSort σ ∷ []) ∷ []) ∷ x ∷ [])
     showTermS (`exists n σ x) = do
       n′ ← freshNameS n σ
       x ← showTermS x
       dropNameS
-      pure $ mkSTerm ("exists" ∷ mkSTerm (mkSTerm (showName n′ ∷ showSort σ ∷ []) ∷ []) ∷ x ∷ [])
+      return $ mkSTerm ("exists" ∷ mkSTerm (mkSTerm (showName n′ ∷ showSort σ ∷ []) ∷ []) ∷ x ∷ [])
     showTermS (`let n σ x y) = do
       x ← showTermS x
       n ← freshNameS n σ
       y ← showTermS y
       dropNameS
-      pure $ mkSTerm (("let" ∷ mkSTerm [ mkSTerm (showName n ∷ x ∷ []) ] ∷ y ∷ []) )
+      return $ mkSTerm (("let" ∷ mkSTerm [ mkSTerm (showName n ∷ x ∷ []) ] ∷ y ∷ []) )
 
     showArgsS : Args Γ Δ → NameState Γ Γ (List String)
-    showArgsS []       = pure []
-    showArgsS (x ∷ xs) = do x ← showTermS x; xs ← showArgsS xs; pure (x ∷ xs)
+    showArgsS []       = return []
+    showArgsS (x ∷ xs) = do x ← showTermS x; xs ← showArgsS xs; return (x ∷ xs)
 
   -- |Show a script as an S-expression, and build up an environment of output parsers.
   showScriptS : Script Γ Γ′ Ξ → NameState Γ Γ′ (List String × OutputParsers Ξ)
   showScriptS [] = do
-    pure $ [] , []
+    return $ [] , []
   showScriptS (`set-logic l scr) = do
     (scr , ops) ← showScriptS scr
-    pure $ mkSTerm ("set-logic" ∷ l ∷ []) ∷ scr , ops
+    return $ mkSTerm ("set-logic" ∷ l ∷ []) ∷ scr , ops
   showScriptS (`declare-const n σ scr) = do
     n′ ← freshNameS n σ
     (scr , ops) ← showScriptS scr
-    pure $ mkSTerm ("declare-const" ∷ showName n′ ∷ showSort σ ∷ []) ∷ scr , ops
+    return $ mkSTerm ("declare-const" ∷ showName n′ ∷ showSort σ ∷ []) ∷ scr , ops
   showScriptS (`assert x scr) = do
     x ← showTermS x
     (scr , ops) ← showScriptS scr
-    pure $ mkSTerm ("assert" ∷ x ∷ []) ∷ scr , ops
+    return $ mkSTerm ("assert" ∷ x ∷ []) ∷ scr , ops
   showScriptS (`check-sat scr) = do
     (scr , ops) ← showScriptS scr
-    pure $ mkSTerm ("check-sat" ∷ []) ∷ scr , pSat ∷ ops
+    return $ mkSTerm ("check-sat" ∷ []) ∷ scr , pSat ∷ ops
   showScriptS (`get-model scr) = do
     (_ns , vps) ← get
     (scr , ops) ← showScriptS scr
-    pure $ mkSTerm ("check-sat" ∷ []) ∷ mkSTerm ("get-model" ∷ []) ∷ scr
+    return $ mkSTerm ("check-sat" ∷ []) ∷ mkSTerm ("get-model" ∷ []) ∷ scr
            , mkModelParser (mkVarParser vps) ∷ ops
 
   -- |Show a script as an S-expression, and return an environment of output parsers.

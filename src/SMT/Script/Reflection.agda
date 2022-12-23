@@ -15,8 +15,7 @@ open Theory theory
 open Reflectable reflectable
 
 open import Level using (0ℓ)
-open import Effect.Functor using (RawFunctor)
-open import Effect.Monad
+open import Category.Monad
 open import Data.Bool.Base using (Bool; true; false)
 open import Data.Environment as Env using (Env; _∷_; [])
 open import Data.Empty using (⊥; ⊥-elim)
@@ -26,18 +25,16 @@ open import Data.List.Relation.Unary.All using (All; _∷_; []; all?)
 open import Data.List.Relation.Unary.Any as Any using (here; there)
 open import Data.Maybe as Maybe using (Maybe; just; nothing)
 open import Data.Sum.Base as Sum using (_⊎_) renaming (inj₁ to left; inj₂ to right)
-import Data.Sum.Effectful.Left.Transformer as SumₗT
 open import Data.Nat as Nat using (ℕ; suc; zero)
 open import Data.Product as Prod using (∃; ∃-syntax; -,_; _×_; _,_; proj₁; proj₂)
 open import Data.String as String using (String; _++_)
 open import Data.Unit as Unit using (⊤)
 open import Data.Vec as Vec using (Vec; _∷_; [])
 open import Function using (Morphism; _$_; case_of_; _∘_; const; flip; id)
-import Function.Identity.Effectful as Identity
 import Level
 import Reflection as Rfl
-open import Reflection.AST.DeBruijn using (η-expand)
-import Reflection.TCM.Effectful as TC
+open import Reflection.DeBruijn using (η-expand)
+import Reflection.TypeChecking.Monad.Syntax as TC
 open import Relation.Nullary using (Dec; yes; no; ¬_)
 open import Relation.Nullary.Decidable using (True)
 open import Relation.Binary.PropositionalEquality using (_≡_; _≢_; refl; sym)
@@ -107,28 +104,33 @@ getNegation with checkIdentifier BOOL (quote ¬_)
 ... | _ = left (undefined-core "NOT" "sort should be BOOL → BOOL")
 
 module ETC where
-  open module ErrorT = SumₗT Error 0ℓ using (SumₗT; mkSumₗT; runSumₗT)
+  record M (A : Set) : Set where
+    constructor mkM
+    field
+      run : Rfl.TC (Error ⊎ A)
 
-  M : Set → Set
-  M = SumₗT Rfl.TC
-
-  monadTd : RawMonadTd Rfl.TC M
-  monadTd = ErrorT.monadT TC.monad
+  open M public
 
   throw : Error → M A
-  throw = mkSumₗT ∘ Rfl.pure ∘ left
+  throw = mkM ∘ TC.pure ∘ left
+
+  monad : RawMonad M
+  monad = record
+    { return = mkM ∘ pure ∘ right
+    ; _>>=_ = λ m k → mkM (run m >>= Sum.[ pure ∘ left , run ∘ k ])
+    } where open TC
+
+  open RawMonad monad
+
+  lift : Rfl.TC A → M A
+  lift m = mkM (right TC.<$> m)
 
   hoist : Error ⊎ A → M A
   hoist = Sum.[ throw , pure ]
-    where open RawMonadTd monadTd
 
   extendContext : Rfl.Arg Rfl.Type → M A → M A
-  extendContext a (mkSumₗT m) = mkSumₗT (Rfl.extendContext a m)
+  extendContext a (mkM m) = mkM (Rfl.extendContext a m)
 
-  run : M A → Rfl.TC (Error ⊎ A)
-  run = runSumₗT
-
-  open RawMonadTd monadTd
 
   -- Assert that two sorts are equal
   _≡!-Sort_ : (σ σ′ : Sort) → M (σ ≡ σ′)
@@ -180,7 +182,7 @@ private module _ where
 
 -- TODO: sort inference? (right now all functions must be given the sort of the output term.)
 module _ where
-  open RawMonadTd ETC.monadTd
+  open RawMonad ETC.monad renaming (_⊛_ to _<*>_)
   open Rfl.Term
   open Rfl.Arg
   open Rfl.Abs
@@ -292,7 +294,7 @@ module _ where
   sortOrTerm Γ fv t = run (sortOrTerm′ maxFuel Γ fv t)
 
 module _ where
-  open RawMonad (TC.monad {0ℓ})
+  open TC
   open Rfl.Term
   open Rfl.Arg
   open Rfl.Abs

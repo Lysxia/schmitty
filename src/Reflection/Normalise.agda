@@ -12,11 +12,11 @@ open import Data.Unit
 open import Function
 
 open import Reflection
-open import Reflection.TCM.Effectful using (applicative)
+open import Reflection.TypeChecking.Monad.Categorical using (applicative)
 
-open import Reflection.AST.Universe
-open import Reflection.AnnotatedAST
-open import Reflection.AnnotatedAST.Free
+open import Reflection.Universe
+open import Reflection.Annotated
+open import Reflection.Annotated.Free
 
 private
   Ann : ∀ {k} → ⟦ k ⟧ → Set
@@ -31,7 +31,7 @@ private
   action : ∀ {k} {t : ⟦ k ⟧} → Annotated Ann t → TC ⟦ k ⟧
   action (⟨ just m , _ , _ ⟩ _) = blockOnMeta m
   action {⟨term⟩} {t = t} _     = normalise t
-  action {t = t} _              = pure t
+  action {t = t} _              = return t
 
   hasBinder : AnnotationFun (λ _ → Bool)
   hasBinder (⟨abs⟩ _) _ = true
@@ -45,7 +45,7 @@ open Traverse applicative
 
 blockOnAnyMeta : Term → TC Term
 blockOnAnyMeta t = traverse (λ { nothing → false; (just _) → true })
-                            (λ { {t = t} (⟨ nothing ⟩ _) → pure t; (⟨ just m ⟩ _) → blockOnMeta m })
+                            (λ { {t = t} (⟨ nothing ⟩ _) → return t; (⟨ just m ⟩ _) → blockOnMeta m })
                             (annotate hasMeta t)
 
 -- Normalise closed subterms with no binders of a term
